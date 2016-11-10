@@ -180,6 +180,107 @@ glDeleteFramebuffersEXT(1, &sampleFramebuffer);
 glPopAttrib();
 
 
+// ------------------------
+
+// If you work with image wells (drop zones)
+// then you might need these codes to convert
+// textures from RGB to RGBA
+// this code is intended to be inserted below DRAW YOUR STUFF above
+
+FxTexture *objectTexture = nil;
+FxRenderInfo renderInfoObj = {0};
+renderInfoObj.time.frame = 0;       //put your actual time here
+renderInfoObj.qualityLevel = kFxQuality_HIGH;
+renderInfoObj.fieldOrder = kFxFieldOrder_PROGRESSIVE;
+renderInfoObj.scaleX = 1;
+renderInfoObj.scaleY = 1;
+renderInfoObj.depth = kFxDepth_FLOAT32;
+
+BOOL bRes = [parmsApi getTexture:&objectTexture layerOffsetX:0 layerOffsetY:0 requestInfo:renderInfoObj fromParm:kLayerParamID atTime:renderInfoObj.time.frame];
+
+
+//first we need to convert a texture from the drop zone to a RGBA texture
+GLuint renderBufferInterm;
+GLuint textureRGBA;
+
+double objLeft, objRight, objTop, objBottom;
+
+[objectTexture getTextureCoords:&objLeft
+                          right:&objRight
+                         bottom:&objBottom
+                            top:&objTop];
+
+//Generate FBO
+glGenFramebuffers(1, &renderBufferInterm);
+glBindFramebuffer(GL_FRAMEBUFFER, renderBufferInterm);
+
+//Generate empty RGBA texture
+glGenTextures(1, &textureRGBA);
+glBindTexture(GL_TEXTURE_RECTANGLE_ARB, textureRGBA);
+
+//remember current parameters
+GLint oldMinFilter, oldMagFilter;
+glGetTexParameteriv( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, &oldMinFilter );
+glGetTexParameteriv( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, &oldMagFilter );
+
+glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+glTexParameteri(GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+glTexImage2D(GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA, objRight - objLeft, objTop - objBottom, 0, GL_BGR, GL_UNSIGNED_BYTE, 0);
+
+glFramebufferTextureEXT(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, textureRGBA, 0);
+// Check for framebuffer completeness
+if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    NSLog(@"Failed to make complete framebuffer object %x", glCheckFramebufferStatus(GL_FRAMEBUFFER));
+
+//save current viewport and matrix mode
+float viewPortDims[4];
+glGetFloatv(GL_VIEWPORT, viewPortDims);
+
+GLint matrixMode;
+glGetIntegerv(GL_MATRIX_MODE, &matrixMode);
+
+//set the coordinate system, with the origin in the top left
+glViewport(0, 0, objRight - objLeft, objTop - objBottom);
+
+glMatrixMode(GL_PROJECTION);
+glPushMatrix();
+glLoadIdentity();
+glOrtho(0, objRight - objLeft, 0, objTop - objBottom, -1, 1);
+
+//now draw  objectTexture to textureRGBA
+[objectTexture bind];
+[objectTexture enable];
+
+glBegin(GL_QUADS);
+{
+    glTexCoord2d( objLeft, objBottom );     glVertex2d( objLeft, objBottom );
+    glTexCoord2d( objRight, objBottom );    glVertex2d( objRight, objBottom );
+    glTexCoord2d( objRight, objTop );       glVertex2d( objRight, objTop );
+    glTexCoord2d( objLeft, objTop );        glVertex2d( objLeft, objTop );
+}
+glEnd();
+
+//restore view port, matrix and FBO
+glViewport(viewPortDims[0], viewPortDims[1], viewPortDims[2], viewPortDims[3]);
+glPopMatrix();
+glMatrixMode(matrixMode);
+glBindFramebuffer(GL_FRAMEBUFFER, sampleFramebuffer);
+
+//bind result RGBA texture
+glBindTexture(GL_TEXTURE_RECTANGLE_ARB, textureRGBA);
+
+// DRAW YOUR STUFF.
+//
+
+//delete resources
+glDeleteTextures(1, &textureRGBA);
+glDeleteRenderbuffers(1, &renderBufferInterm);
+
+
+//Clear error state to not interfere with downstreaming plugins
+glGetError();
+
 
 
 // ------------------------
